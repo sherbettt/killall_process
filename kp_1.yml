@@ -36,14 +36,17 @@
 
   # В ansible.builtin.debug (msg) выводи
   # Jobs list: {{ process_search_result.stdout_lines | join(', ') }}
-        - name: Show all properties of multiple
+        - name: Show all properties of multiple processes
           ansible.builtin.debug:
             var: process_search_result
             verbosity: 0                  # Выводить всегда (0 = всегда, 1 = -v, 2 = -vv и т.д.)
 
 
-  # Проверяй сигналы (kill -L)
-  # Проверяй зомби: ps aux | awk '$8 ~ /^[Zz]/'  или  ps aux | awk '$8=="Z"'
+#        - name: Display properties of multiple processes
+#          ansible.builtin.debug:
+#            msg: | 
+#              - "{{ process_search_result.stdout_lines | join(', ') }}"
+
     - name: Kill processes with multiple signals
       block:
         - name: Check if processes exist before killing
@@ -58,6 +61,9 @@
 
         - name: Graceful termination of processes
           ansible.builtin.shell: | 
+            # pkill -15 {{ item }} - отправить сигнал SIGTERM (15) процессу
+            # 2>/dev/null          - перенаправить stderr (ошибки) в /dev/null
+            # || true              - если pkill ничего не найдет, не считать ошибкой
             pkill -15 {{ item }} 2>/dev/null || true
           register: kill_15_result
           loop: "{{ processes_to_kill }}"
@@ -68,6 +74,9 @@
 
         - name: Forceful termination of sngrep processes
           ansible.builtin.shell: | 
+            # pkill -9 {{ item }} - отправить сигнал SIGKILL (9) процессу
+            # SIGKILL нельзя перехватить или проигнорировать
+            # Используется, если SIGTERM не сработал
             pkill -9 {{ item }} 2>/dev/null || true
           register: kill_9_result
           loop: "{{ processes_to_kill }}"
@@ -78,6 +87,9 @@
 
         - name: HUP termination of sngrep processes
           ansible.builtin.shell: | 
+            # pkill -HUP {{ item }} - отправить сигнал SIGHUP процессу
+            # SIGHUP обычно заставляет процесс перечитать конфигурационные файлы
+            # или корректно завершиться (зависит от реализации)
             pkill -HUP {{ item }} 2>/dev/null || true
           register: kill_hup_result
           loop: "{{ processes_to_kill }}"
@@ -85,3 +97,17 @@
             label: "{{ item }}"
           changed_when: kill_hup_result.rc == 0
           failed_when: false
+
+
+# Проверка зомби-процессов:
+# ps aux | awk '$8 ~ /^[Zz]/'  # Найти процессы, у которых статус (8-я колонка) начинается с Z или z
+# ps aux | awk '$8=="Z"'       # Найти процессы со статусом точно "Z" (зомби)
+
+# Колонки ps aux:
+# USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+# STAT (статус):
+#   Z - зомби (zombie)
+#   S - спящий (sleeping)
+#   R - работающий (running)
+#   D - в uninterruptible sleep
+#   T - остановленный (stopped)
