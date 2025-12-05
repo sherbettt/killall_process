@@ -17,17 +17,26 @@
 
     - name: search ALL proccess PIDs and jobs
       block:
-        - name: Find sngrep processes with ps
+        - name: Find multiple processes with ps
+            # Команда для поиска процессов:
+            # ps aux             - показать все процессы всех пользователей
+            # grep -E '{{ item }}.*$' - искать по шаблону (regex)
+            #                      '{{ item }}' заменяется на sngrep, postgresql и т.д.
+            #                      '.*$' означает "любые символы до конца строки"
+            # grep -v grep       - исключить из результатов сам процесс grep
+            # || true            - если команда слева завершится с ошибкой,
+            #                      вернуть успешный код выхода (0)
+            #                      без этого Ansible считал бы ошибкой отсутствие процессов
           ansible.builtin.shell: ps aux | grep -E '{{ item }}.*$' | grep -v grep || true
           register: process_search_result
           loop: "{{ processes_to_kill }}"
           loop_control:
-            label: "{{ item }}"
-          changed_when: false
+            label: "{{ item }}"           # Показывать имя процесса в выводе вместо полного item
+          changed_when: false             # Всегда считать задачу "не изменившей" состояние
 
   # В ansible.builtin.debug (msg) выводи
   # Jobs list: {{ process_search_result.stdout_lines | join(', ') }}
-        - name: Show all properties of sngrep_ps
+        - name: Show all properties of multiple
           ansible.builtin.debug:
             var: process_search_result
             verbosity: 0
@@ -37,6 +46,13 @@
   # Проверяй зомби: ps aux | awk '$8 ~ /^[Zz]/'  или  ps aux | awk '$8=="Z"'
     - name: Kill processes with multiple signals
       block:
+        - name: Check if processes exist before killing
+          ansible.builtin.shell: |
+            pgrep -c {{ item }} || echo "0"
+          register: process_count_before
+          loop: "{{ processes_to_kill }}"
+          changed_when: false
+
         - name: Graceful termination of processes
           ansible.builtin.shell: | 
             pkill -15 {{ item }} 2>/dev/null || true
