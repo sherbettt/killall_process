@@ -1,0 +1,50 @@
+---
+- name: Search and kill multiple processes
+  hosts: kill_proc_server
+  become: yes
+  gather_facts: no
+  
+  tasks:
+    - name: Ping hosts
+      ansible.builtin.ping:
+        #data: crash    # для имитации сбоя
+
+    - name: search ALL proccess PIDs and jobs
+      block:
+        - name: Find sngrep processes with ps
+          ansible.builtin.shell: ps aux | grep -E 'sngrep.*$' || true
+          register: sngrep_ps
+          changed_when: false
+
+        - name: Show all properties of sngrep_ps
+          ansible.builtin.debug:
+            var: sngrep_ps
+            verbosity: 0
+
+#        - name: Display sngrep proccess
+#          ansible.builtin.debug:
+#            msg: |
+#              - "Jobs list: {{ sngrep_ps.stdout_lines | join(', ') }}"
+
+    - name: Kill processes
+      block:
+        - name: Graceful termination of sngrep processes
+          ansible.builtin.shell: | 
+            pkill -15 sngrep 2>/dev/null || true
+          register: kill_sngrep_result
+          changed_when: kill_sngrep_result.rc == 0
+          failed_when: false
+
+        - name: Forceful termination of sngrep processes
+          ansible.builtin.shell: | 
+            pkill -9 sngrep 2>/dev/null || true
+          register: kill_sngrep_result
+          changed_when: kill_sngrep_result.rc == 0
+          failed_when: false
+
+        - name: HUP termination of sngrep processes
+          ansible.builtin.shell: | 
+            pkill -HUP sngrep 2>/dev/null || true
+          register: kill_sngrep_hup
+          changed_when: kill_sngrep_result.rc == 0
+          failed_when: false
