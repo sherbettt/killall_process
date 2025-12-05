@@ -39,7 +39,7 @@
         - name: Show all properties of multiple
           ansible.builtin.debug:
             var: process_search_result
-            verbosity: 0
+            verbosity: 0                  # Выводить всегда (0 = всегда, 1 = -v, 2 = -vv и т.д.)
 
 
   # Проверяй сигналы (kill -L)
@@ -48,7 +48,10 @@
       block:
         - name: Check if processes exist before killing
           ansible.builtin.shell: |
-            pgrep -c {{ item }} || echo "0"
+            # pgrep -c {{ item }} - подсчитать количество процессов с именем {{ item }}
+            # || echo "0"          - если pgrep ничего не найдет (вернет код ≠0),
+            #                        вывести "0" (чтобы избежать ошибки в Ansible)
+            pgrep -c {{ item }} || echo "0" 
           register: process_count_before
           loop: "{{ processes_to_kill }}"
           changed_when: false
