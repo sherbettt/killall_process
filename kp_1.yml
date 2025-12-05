@@ -4,11 +4,11 @@
   become: yes
   gather_facts: no
   
-#  vars:
-#    processes_to_kill:
-#      - sngrep
-#      #- postgresql
-#      # добавьте другие процессы при необходимости
+  vars:
+    processes_to_kill:
+      - sngrep
+      #- postgresql
+      # добавьте другие процессы при необходимости
 
   tasks:
     - name: Ping hosts
@@ -18,41 +18,51 @@
     - name: search ALL proccess PIDs and jobs
       block:
         - name: Find sngrep processes with ps
-          ansible.builtin.shell: ps aux | grep -E 'sngrep.*$' || true
-          register: sngrep_ps
+          ansible.builtin.shell: ps aux | grep -E '{{ item }}.*$' | grep -v grep || true
+          register: process_search_result
+          loop: "{{ processes_to_kill }}"
+          loop_control:
+            label: "{{ item }}"
           changed_when: false
 
+  # В ansible.builtin.debug (msg) выводи
+  # Jobs list: {{ process_search_result.stdout_lines | join(', ') }}
         - name: Show all properties of sngrep_ps
           ansible.builtin.debug:
-            var: sngrep_ps
+            var: process_search_result
             verbosity: 0
 
-#        - name: Display sngrep proccess
-#          ansible.builtin.debug:
-#            msg: |
-#              - "Jobs list: {{ sngrep_ps.stdout_lines | join(', ') }}"
 
   # Проверяй сигналы (kill -L)
   # Проверяй зомби: ps aux | awk '$8 ~ /^[Zz]/'  или  ps aux | awk '$8=="Z"'
-    - name: Kill processes
+    - name: Kill processes with multiple signals
       block:
-        - name: Graceful termination of sngrep processes
+        - name: Graceful termination of processes
           ansible.builtin.shell: | 
-            pkill -15 sngrep 2>/dev/null || true
-          register: kill_sngrep_result
-          changed_when: kill_sngrep_result.rc == 0
+            pkill -15 {{ item }} 2>/dev/null || true
+          register: kill_15_result
+          loop: "{{ processes_to_kill }}"
+          loop_control:
+            label: "{{ item }}"
+          changed_when: kill_15_result.rc == 0
           failed_when: false
 
         - name: Forceful termination of sngrep processes
           ansible.builtin.shell: | 
-            pkill -9 sngrep 2>/dev/null || true
-          register: kill_sngrep_result
-          changed_when: kill_sngrep_result.rc == 0
+            pkill -9 {{ item }} 2>/dev/null || true
+          register: kill_9_result
+          loop: "{{ processes_to_kill }}"
+          loop_control:
+            label: "{{ item }}"
+          changed_when: kill_9_result.rc == 0
           failed_when: false
 
         - name: HUP termination of sngrep processes
           ansible.builtin.shell: | 
-            pkill -HUP sngrep 2>/dev/null || true
-          register: kill_sngrep_hup
-          changed_when: kill_sngrep_result.rc == 0
+            pkill -HUP {{ item }} 2>/dev/null || true
+          register: kill_hup_result
+          loop: "{{ processes_to_kill }}"
+          loop_control:
+            label: "{{ item }}"
+          changed_when: kill_hup_result.rc == 0
           failed_when: false
