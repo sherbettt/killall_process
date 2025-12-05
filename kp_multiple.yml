@@ -34,18 +34,22 @@
             label: "{{ item }}"           # Показывать имя процесса в выводе вместо полного item
           changed_when: false             # Всегда считать задачу "не изменившей" состояние
 
-  # В ansible.builtin.debug (msg) выводи
-  # Jobs list: {{ process_search_result.stdout_lines | join(', ') }}
         - name: Show all properties of multiple processes
           ansible.builtin.debug:
             var: process_search_result
             verbosity: 0                  # Выводить всегда (0 = всегда, 1 = -v, 2 = -vv и т.д.)
 
+        - name: Display properties of multiple processes
+          ansible.builtin.debug:
+            msg: | 
+              {% for res in process_search_result.results %}
+              Process: {{ res.item }}: {{ res.stdout_lines | join(' | ') or 'No processes' }}
+              Return code: {{ res.rc }}
+              Duration: {{ res.delta }}
+              Start: {{ res.start }}
+              End: {{ res.end }}
+              {% endfor %}
 
-#        - name: Display properties of multiple processes
-#          ansible.builtin.debug:
-#            msg: | 
-#              - "{{ process_search_result.stdout_lines | join(', ') }}"
 
     - name: Kill processes with multiple signals
       block:
