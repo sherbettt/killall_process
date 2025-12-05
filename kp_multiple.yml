@@ -7,6 +7,7 @@
   vars:
     processes_to_kill:
       - sngrep
+      - vim
       #- postgresql
       # добавьте другие процессы при необходимости
 
@@ -17,90 +18,170 @@
 
     - name: search ALL proccess PIDs and jobs
       block:
+        - name: Find multiple processes with awk
+          ansible.builtin.shell: |
+            ps aux | awk -v p="{{ item }}" '$NF ~ p {print $0}' || true
+          register: awk_search_result
+          loop: "{{ processes_to_kill }}"
+          changed_when: false
+
+#        - name: Show all properties of multiple processes (awk)
+#          ansible.builtin.debug:
+#            var: awk_search_result
+#            verbosity: 0  
+
+        - name: Display properties of multiple processes (awk)
+          ansible.builtin.debug:
+            msg: |
+                AWK Search Results:
+                {% for result in awk_search_result.results %}
+                Process: {{ result.item }}
+                Found: {{ result.stdout_lines | length }} process(es)
+                {% if result.stdout_lines %}
+                Processes:
+                    {% for line in result.stdout_lines %}
+                    - {{ line }}
+                    {% endfor %}
+                {% else %}
+                No processes found
+                {% endif %}
+                {% endfor %}
+
+
+        # ps aux | grep -E '[s]ngrep.*$'
+        # ps aux | grep -E '[v]im.*$'
+          # item[:1] - первая буква имени процесса
+          # item[1:] - остальная часть имени процесса (со второй буквы)
+          # Для sngrep: [s]ngrep
+          # Для vim: [v]im
         - name: Find multiple processes with ps
-            # Команда для поиска процессов:
-            # ps aux             - показать все процессы всех пользователей
-            # grep -E '{{ item }}.*$' - искать по шаблону (regex)
-            #                      '{{ item }}' заменяется на sngrep, postgresql и т.д.
-            #                      '.*$' означает "любые символы до конца строки"
-            # grep -v grep       - исключить из результатов сам процесс grep
-            # || true            - если команда слева завершится с ошибкой,
-            #                      вернуть успешный код выхода (0)
-            #                      без этого Ansible считал бы ошибкой отсутствие процессов
-          ansible.builtin.shell: ps aux | grep -E '{{ item }}.*$' | grep -v grep || true
+          ansible.builtin.shell: | 
+            ps aux | grep -E '[{{ item[:1] }}]{{ item[1:] }}.*$' || true
           register: process_search_result
           loop: "{{ processes_to_kill }}"
           loop_control:
             label: "{{ item }}"           # Показывать имя процесса в выводе вместо полного item
           changed_when: false             # Всегда считать задачу "не изменившей" состояние
 
-        - name: Show all properties of multiple processes
-          ansible.builtin.debug:
-            var: process_search_result
-            verbosity: 0                  # Выводить всегда (0 = всегда, 1 = -v, 2 = -vv и т.д.)
+#        - name: Show all properties of multiple processes (ps)
+#          ansible.builtin.debug:
+#            var: process_search_result
+#            verbosity: 0                  # Выводить всегда (0 = всегда, 1 = -v, 2 = -vv и т.д.)
 
-        - name: Display properties of multiple processes
+        - name: Display properties of multiple processes (awk)
           ansible.builtin.debug:
-            msg: | 
-              {% for res in process_search_result.results %}
-              Process: {{ res.item }}: {{ res.stdout_lines | join(' | ') or 'No processes' }}
-              Return code: {{ res.rc }}
-              Duration: {{ res.delta }}
-              Start: {{ res.start }}
-              End: {{ res.end }}
-              {% endfor %}
+            msg: |
+                AWK Search Results:
+                {% for result in process_search_result.results %}
+                Process: {{ result.item }}
+                Found: {{ result.stdout_lines | length }} process(es)
+                {% if result.stdout_lines %}
+                Processes:
+                    {% for line in result.stdout_lines %}
+                    - {{ line }}
+                    {% endfor %}
+                {% else %}
+                No processes found
+                {% endif %}
+                {% endfor %}
 
 
     - name: Kill processes with multiple signals
       block:
         - name: Check if processes exist before killing
-          ansible.builtin.shell: |
             # pgrep -c {{ item }} - подсчитать количество процессов с именем {{ item }}
-            # || echo "0"          - если pgrep ничего не найдет (вернет код ≠0),
+            # || echo "0"          - если pgrep ничего не найдет (вернет код !=0),
             #                        вывести "0" (чтобы избежать ошибки в Ansible)
+          ansible.builtin.shell: |
             pgrep -c {{ item }} || echo "0" 
           register: process_count_before
           loop: "{{ processes_to_kill }}"
           changed_when: false
 
         - name: Graceful termination of processes
-          ansible.builtin.shell: | 
             # pkill -15 {{ item }} - отправить сигнал SIGTERM (15) процессу
             # 2>/dev/null          - перенаправить stderr (ошибки) в /dev/null
             # || true              - если pkill ничего не найдет, не считать ошибкой
+          ansible.builtin.shell: | 
             pkill -15 {{ item }} 2>/dev/null || true
-          register: kill_15_result
+          register: kill_15_results
           loop: "{{ processes_to_kill }}"
           loop_control:
             label: "{{ item }}"
-          changed_when: kill_15_result.rc == 0
+          changed_when: kill_15_results.rc == 0
           failed_when: false
 
+        - name: Show SIGTERM results
+          ansible.builtin.debug:
+            msg: |
+              SIGTERM results =>
+              {% for res in kill_15_results.results %}
+              Process: {{ res.item }}: {{ res.stdout_lines | join(' | ') or 'No processes' }}
+              Return code: {{ res.rc }}
+              {% endfor %}
+
         - name: Forceful termination of sngrep processes
-          ansible.builtin.shell: | 
             # pkill -9 {{ item }} - отправить сигнал SIGKILL (9) процессу
             # SIGKILL нельзя перехватить или проигнорировать
             # Используется, если SIGTERM не сработал
+          ansible.builtin.shell: | 
             pkill -9 {{ item }} 2>/dev/null || true
-          register: kill_9_result
+          register: kill_9_results
           loop: "{{ processes_to_kill }}"
           loop_control:
             label: "{{ item }}"
-          changed_when: kill_9_result.rc == 0
+          changed_when: kill_9_results.rc == 0
           failed_when: false
 
+        - name: Show SIGKILL results  
+          ansible.builtin.debug:
+            msg: |
+              SIGKILL results:
+              {% for res in kill_9_results.results %}
+              Process: {{ res.item }}: {{ res.stdout_lines | join(' | ') or 'No processes' }}
+              Return code: {{ res.rc }}
+              {% endfor %}
+
         - name: HUP termination of sngrep processes
-          ansible.builtin.shell: | 
             # pkill -HUP {{ item }} - отправить сигнал SIGHUP процессу
             # SIGHUP обычно заставляет процесс перечитать конфигурационные файлы
             # или корректно завершиться (зависит от реализации)
+          ansible.builtin.shell: | 
             pkill -HUP {{ item }} 2>/dev/null || true
-          register: kill_hup_result
+          register: kill_hup_results
           loop: "{{ processes_to_kill }}"
           loop_control:
             label: "{{ item }}"
-          changed_when: kill_hup_result.rc == 0
+          changed_when: kill_hup_results.rc == 0
           failed_when: false
+
+        - name: Check if processes exist after killing
+          ansible.builtin.shell: |
+            pgrep -c {{ item }} || echo "0" 
+          register: process_count_after
+          loop: "{{ processes_to_kill }}"
+          changed_when: false
+
+
+    - name: DEBUG vars
+      block:
+        - name: Show type of process_search_result
+          ansible.builtin.debug:
+            msg: 
+              - "Type of process_search_result: {{ process_search_result | type_debug }}"
+
+        - name: Check if process_search_result is a dictionary
+          ansible.builtin.debug:
+            msg: "Is dict: {{ process_search_result is mapping }}"
+
+#        - name: Show repr of process_search_result
+#          ansible.builtin.debug:
+#            msg: |
+#              repr: {{ process_search_result | string }}
+
+        - name: Show type of kill_hup_results 
+          ansible.builtin.debug:
+            msg: "Type of kill_hup_results: {{ kill_hup_results | type_debug }}"
 
 
 # Проверка зомби-процессов:
